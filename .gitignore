@@ -1,0 +1,23 @@
+# Python 관련
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.ipynb_checkpoints/
+
+# 데이터 관련 
+data/
+*.mat
+*.npy
+*.pt
+*.pth
+
+# MATLAB 관련
+*.asv
+*.m~
+/matlab/html/
+
+# 시스템 및 IDE 관련
+.DS_Store
+.vscode/
+.idea/
