@@ -4,64 +4,94 @@ import sys
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split # random_split 추가!
 
-# 꿀팁: 상위 폴더(src)의 모듈을 에러 없이 불러오기 위한 절대 경로 설정
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.join(current_dir, '..')
 sys.path.append(project_root)
 
-# 우리가 만든 모듈들 불러오기
 from src.dataset import RadarVisionDataset
-from src.models.attention_fusion import MidLevelAttentionFusion
+from src.models.attention_fusion import AdvancedFusionModel
 
 def train():
-    print("🚀 [Step 1] 학습 환경 설정 중...")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"🖥️ 사용 장치: {device}")
 
-    # 데이터 로드
+    # 1. 데이터 불러오기 및 8:2로 쪼개기
     data_dir = os.path.join(project_root, 'data', 'raw')
-    dataset = RadarVisionDataset(data_dir)
-    dataloader = DataLoader(dataset, batch_size=16, shuffle=True)
-    print(f"✅ 총 {len(dataset)}개의 데이터를 성공적으로 불러왔습니다.")
+    full_dataset = RadarVisionDataset(data_dir)
+    
+    train_size = int(0.8 * len(full_dataset))
+    val_size = len(full_dataset) - train_size
+    train_dataset, val_dataset = random_split(full_dataset, [train_size, val_size])
+    
+    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False) # 시험은 섞을 필요 없음
+    
+    print(f"✅ 데이터 준비 완료: 총 {len(full_dataset)}개 (학습 {train_size}개 / 검증 {val_size}개)")
 
-    print("🧠 [Step 2] 모델 및 최적화 도구 준비 중...")
-    model = MidLevelAttentionFusion().to(device)
-    criterion = nn.MSELoss() # 객체 탐지 박스 회귀를 위한 평균 제곱 오차
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    # train.py 수정
+    model = AdvancedFusionModel(mode='multiscale').to(device)
+    criterion = nn.MSELoss() 
+    optimizer = optim.Adam(model.parameters(), lr=0.0005)
 
-    epochs = 15
-    print(f"🔥 [Step 3] 본격적인 학습 시작! (총 {epochs} Epochs)")
+    epochs = 50 
+    best_val_loss = float('inf') # 최고 기록을 저장할 변수 (처음엔 무한대로 설정)
+    save_path = os.path.join(project_root, 'experiments', 'model_multiscale.pth')
+
+    print(f"🔥 [정석 모드] Train / Validation 학습 시작! (총 {epochs} Epochs)\n")
     
     for epoch in range(epochs):
-        model.train()
-        running_loss = 0.0
+        # ==========================================
+        # 📚 1. 학습 (Training) Phase
+        # ==========================================
+        model.train() # 학습 모드 ON (Dropout 작동)
+        train_loss = 0.0
         
-        for i, (images, radars, labels) in enumerate(dataloader):
-            # 데이터를 GPU 또는 CPU로 전송
-            images = images.to(device)
-            radars = radars.to(device)
-            labels = labels.to(device)
+        for images, radars, labels in train_loader:
+            images, radars = images.to(device), radars.to(device)
+            labels = labels.squeeze().to(device) # 마법의 squeeze!
             
-            # 1. 예측 (Forward)
-            outputs = model(images, radars)
-            
-            # 2. 오차 계산 (Loss)
-            loss = criterion(outputs, labels)
-            
-            # 3. 학습 (Backward & Optimize)
             optimizer.zero_grad()
+            outputs = model(images, radars)
+            loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
             
-            running_loss += loss.item()
+            train_loss += loss.item()
             
-        # 에폭마다 평균 Loss 출력 (이 값이 떨어져야 학습이 잘 되는 것입니다!)
-        avg_loss = running_loss / len(dataloader)
-        print(f"📈 Epoch [{epoch+1}/{epochs}] - Loss: {avg_loss:.4f}")
+        avg_train_loss = train_loss / len(train_loader)
 
-    print("🎉 딥러닝 모델 학습이 성공적으로 완료되었습니다!")
+        # ==========================================
+        # 📝 2. 검증 (Validation) Phase
+        # ==========================================
+        model.eval() # 평가 모드 ON (Dropout 중지, 뇌세포 100% 가동)
+        val_loss = 0.0
+        
+        with torch.no_grad(): # 역전파(학습) 금지!
+            for images, radars, labels in val_loader:
+                images, radars = images.to(device), radars.to(device)
+                labels = labels.squeeze().to(device)
+                
+                outputs = model(images, radars)
+                loss = criterion(outputs, labels)
+                val_loss += loss.item()
+                
+        avg_val_loss = val_loss / len(val_loader)
+
+        # ==========================================
+        # 🏆 3. 결과 출력 및 최고 모델 저장
+        # ==========================================
+        print(f"Epoch [{epoch+1:02d}/{epochs}] - Train Loss: {avg_train_loss:.6f} | Val Loss: {avg_val_loss:.6f}")
+        
+        # 만약 이번 시험 점수(Val Loss)가 역대급으로 낮다면? (최고 기록 갱신)
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            torch.save(model.state_dict(), save_path)
+            print(f"  🌟 최고 기록 갱신! 모델 가중치 저장됨 (Val Loss: {best_val_loss:.6f})")
+
+    print("\n🎉 모든 학습 및 검증이 완료되었습니다!")
+    print(f"💾 최종적으로 가장 똑똑한 모델이 저장된 위치: {save_path}")
 
 if __name__ == "__main__":
     train()
