@@ -20,7 +20,7 @@ def train():
     # 1. 데이터 불러오기 (multi 데이터 폴더 확인!)
     current_dir = os.path.dirname(os.path.abspath(__file__)) # experiments 폴더
     project_root = os.path.join(current_dir, '..')           # 프로젝트 최상위 폴더
-    data_dir = os.path.join(project_root, 'data', 'raw_multi') # 정확한 데이터 경로
+    data_dir = os.path.join(project_root, 'data', 'raw_crowded') # 정확한 데이터 경로
 
     full_dataset = RadarVisionDataset(data_dir, grid_size=4)
     

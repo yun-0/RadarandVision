@@ -16,7 +16,7 @@ class SpatialAttention(nn.Module):
 
 # --- [메인 모델] Hybrid Advanced Fusion Model ---
 class AdvancedFusionModel(nn.Module):
-    def __init__(self, mode='hybrid', grid_size=4):
+    def __init__(self, mode='hybrid', grid_size=8):
         super().__init__()
         self.mode = mode.lower().strip()
         self.grid_size = grid_size
