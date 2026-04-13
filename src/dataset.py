@@ -13,18 +13,27 @@ class RadarVisionDataset(Dataset):
     - Occlusion(동일 셀 충돌) 발생 시 로그 기록.
     """
 
-    def __init__(self, data_dir, grid_size=8, img_size=64):
+    def __init__(self, data_dir, grid_size=8, img_size=64,
+                 file_list=None, transform=None):
         """
         Args:
-            data_dir (str): .mat 파일이 있는 폴더 경로
-                            (raw_multi 또는 raw_crowded 또는 단일 객체 폴더)
-            grid_size (int): 그리드 분할 수 (기본값 8 → 8x8=64칸)
-            img_size  (int): 이미지/레이더 해상도 (기본값 64)
+            data_dir  (str)        : .mat 파일이 있는 폴더 경로
+            grid_size (int)        : 그리드 분할 수 (기본값 8 → 8x8=64칸)
+            img_size  (int)        : 이미지/레이더 해상도 (기본값 64)
+            file_list (list, opt)  : 파일명 리스트 (train/val 분리 시 사용).
+                                     None이면 data_dir 전체 파일 사용.
+            transform (callable, opt): RadarVisionAugment 인스턴스.
+                                       (img, radar, bboxes) → (img, radar, bboxes)
         """
-        self.data_dir = data_dir
+        self.data_dir  = data_dir
         self.grid_size = grid_size
-        self.img_size = img_size
-        self.files = sorted([f for f in os.listdir(data_dir) if f.endswith('.mat')])
+        self.img_size  = img_size
+        self.transform = transform
+
+        if file_list is not None:
+            self.files = file_list
+        else:
+            self.files = sorted([f for f in os.listdir(data_dir) if f.endswith('.mat')])
 
         # Occlusion 통계 추적 (학습 루프에서 확인 가능)
         self.occlusion_count = 0
@@ -55,7 +64,11 @@ class RadarVisionDataset(Dataset):
         # ── 2. BBox 로드 (단일 / 다중 자동 감지) ────────────────────────────
         bboxes = self._load_bboxes(data, path)
 
-        # ── 3. 그리드 라벨 생성 [grid_size, grid_size, 5] ───────────────────
+        # ── 3. 데이터 증강 (transform 적용 — 그리드 변환 전에 적용해야 bbox 일관성 보장)
+        if self.transform is not None:
+            img, radar, bboxes = self.transform(img, radar, bboxes)
+
+        # ── 4. 그리드 라벨 생성 [grid_size, grid_size, 5] ───────────────────
         # 채널: [Confidence, cx, cy, w, h]  (모두 정규화된 0~1 값)
         label = self._build_label(bboxes)
 
